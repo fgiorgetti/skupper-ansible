@@ -1,0 +1,5 @@
+---
+- name: Debug print task-1
+  ansible.builtin.debug:
+    msg: "This is task-1"
+

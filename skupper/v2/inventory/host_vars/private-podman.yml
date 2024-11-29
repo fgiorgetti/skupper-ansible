@@ -1,0 +1,6 @@
+---
+namespace: default
+platform: podman
+workload_image: quay.io/skupper/patient-portal-database
+resources_path: resources/private-podman.yml
+namespace_home: /home/fgiorget/.local/share/skupper/namespaces/default

@@ -1,0 +1,6 @@
+all:
+  hosts:
+    local:
+      kubeconfig: "/home/fgiorget/kube-skupper-2"
+      ansible_connection: local
+        

@@ -1,0 +1,6 @@
+---
+namespace: private-kube
+workload_name: payment-processor
+workload_path: https://raw.githubusercontent.com/skupperproject/skupper-example-patient-portal/refs/heads/main/payment-processor/kubernetes.yaml
+platform: kubernetes
+resources_path: resources/private-kube.yml

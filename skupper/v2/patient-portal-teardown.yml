@@ -1,0 +1,32 @@
+---
+- name: Teardown Kubernetes namespaces
+  hosts: kubernetes
+  tasks:
+    - name: Delete the namespace
+      kubernetes.core.k8s:
+        state: absent
+        kind: namespace
+        name: "{{ namespace }}"
+        wait: true
+
+- name: Delete Podman site
+  hosts: private-podman
+  tasks:
+    - name: Download remove script
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/skupperproject/skupper/refs/heads/v2/cmd/bootstrap/remove.sh
+        dest: /tmp/remove.sh
+        mode: "0755"
+    - name: Executing remove script
+      ansible.builtin.command:
+        argv:
+          - /tmp/remove.sh
+        removes: "{{ namespace_home }}/runtime"
+
+- name: Database removal
+  hosts: private-podman
+  tasks:
+    - name: Delete the database container
+      containers.podman.podman_container:
+        name: database
+        state: absent

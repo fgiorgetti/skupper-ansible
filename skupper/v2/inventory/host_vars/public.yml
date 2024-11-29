@@ -1,0 +1,6 @@
+---
+namespace: public
+workload_name: frontend
+workload_path: https://raw.githubusercontent.com/skupperproject/skupper-example-patient-portal/refs/heads/main/frontend/kubernetes.yaml
+platform: kubernetes
+resources_path: resources/public.yml

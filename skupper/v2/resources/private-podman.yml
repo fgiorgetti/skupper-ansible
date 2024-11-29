@@ -1,0 +1,28 @@
+---
+apiVersion: skupper.io/v2alpha1
+kind: Site
+metadata:
+  name: private-podman
+---
+apiVersion: skupper.io/v2alpha1
+kind: Connector
+metadata:
+  name: database
+spec:
+  routingKey: database
+  port: 5432
+  host: 127.0.0.1
+---
+apiVersion: skupper.io/v2alpha1
+kind: RouterAccess
+metadata:
+  name: private-podman
+spec:
+  roles:
+    - port: 55671
+      name: inter-router
+    - port: 45671
+      name: edge
+  bindHost: 0.0.0.0
+  subjectAlternativeNames:
+    - host.minikube.internal

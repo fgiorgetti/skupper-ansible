@@ -1,0 +1,66 @@
+---
+- name: Resource module sandbox
+  hosts: all
+  tasks:
+    - name: Create a resource based on its definition
+      fgiorgetti.skupperv2.resource:
+        # platform: podman
+        kubeconfig: "{{ kubeconfig | default('') }}"
+        namespace: "fg-west"
+        state: latest
+        # state: absent
+        def: |
+          apiVersion: skupper.io/v2alpha1
+          kind: Site
+          metadata:
+            name: west
+          spec:
+            linkAccess: default
+          ---
+          apiVersion: skupper.io/v2alpha1
+          kind: Listener
+          metadata:
+            name: backend
+          spec:
+            host: 0.0.0.0
+            port: 8080
+            routingKey: backend-8080
+
+    - name: Create multiple resources based on local definition
+      fgiorgetti.skupperv2.resource:
+        kubeconfig: "{{ kubeconfig | default('') }}"
+        namespace: "fg-east"
+        state: latest
+        #state: absent
+        path: /home/fgiorget/Documents/InterConnect/research/20240829-nonkube-hello-world-v2-default/east
+
+#    - name: Create multiple resources based on local definition in a single file
+#      fgiorgetti.skupperv2.resource:
+#        namespace: "fg-west"
+#        state: latest
+#        platform: podman
+#        path: "/tmp/objects.yaml"
+
+    - name: Create multiple resources based on local definition using a URL
+      fgiorgetti.skupperv2.resource:
+        namespace: "east"
+        state: latest
+        #platform: podman
+        path: https://raw.githubusercontent.com/grs/skupper-example-cockroachdb/refs/heads/v2/east.yaml
+
+    # - name: Create multiple resources based on local definition using podman platform
+    #   fgiorgetti.skupperv2.resource:
+    #     path: /home/fgiorget/Documents/InterConnect/research/20240829-nonkube-hello-world-v2-default/west
+    #     platform: podman
+    #     namespace: west
+#
+#    - name: Create multiple resources based on remote definition
+#      fgiorgetti.skupperv2.resource:
+#        path: /home/fgiorget/Documents/InterConnect/research/20240829-nonkube-hello-world-v2-default/east
+#        platform: podman
+#        remote: true
+#
+#    - name: Create multiple resources based on remote definition BAD
+#      fgiorgetti.skupperv2.resource:
+#        path: ""
+#        remote: true

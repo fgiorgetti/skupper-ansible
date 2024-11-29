@@ -1,0 +1,137 @@
+---
+- name: Prepare Kubernetes clusters
+  hosts: kubernetes
+  tasks:
+    - name: Skupper V2 controller
+      kubernetes.core.k8s:
+        state: present
+        src: https://raw.githubusercontent.com/skupperproject/skupper/refs/heads/v2/cmd/controller/deploy_cluster_scope.yaml
+
+- name: Database deployment
+  hosts: private-podman
+  tasks:
+    - name: Ensure that the podman.socket user scoped service is running and enabled
+      ansible.builtin.systemd:
+        name: podman.socket
+        state: started
+        enabled: true
+        scope: user
+
+    - name: Run the database container
+      containers.podman.podman_container:
+        name: database
+        image: "{{ workload_image }}"
+        state: started
+        ports:
+          - 5432:5432
+        remove: true
+
+- name: Add Skupper Resources to kube sites
+  hosts: kubernetes
+  tasks:
+    - name: Creating Skupper resources
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ resources_path }}"
+
+- name: Add Skupper Resources to podman site
+  hosts: podman
+  tasks:
+    - name: Creating Skupper resources
+      ansible.builtin.copy:
+        src: "{{ resources_path }}"
+        dest: "{{ namespace_home }}/input/resources/"
+        directory_mode: "0755"
+        mode: "0644"
+
+- name: Public token
+  hosts: public
+  tasks:
+    - name: Create an AccessGrant
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: skupper.io/v2alpha1
+          kind: AccessGrant
+          metadata:
+            name: public-grant
+            namespace: "{{ namespace }}"
+          spec:
+            redemptionsAllowed: 2
+
+    - name: Reading public-grant
+      kubernetes.core.k8s_info:
+        api_version: v2alpha1
+        kind: AccessGrant
+        name: public-grant
+        namespace: "{{ namespace }}"
+        wait: true
+        wait_condition:
+          type: Ready
+          status: true
+      register: public_grant
+
+    - name: Write public grant to file template
+      ansible.builtin.copy:
+        dest: /tmp/public-grant.yml
+        mode: "0644"
+        content: |
+          apiVersion: skupper.io/v2alpha1
+          kind: AccessToken
+          metadata:
+            name: public-token
+            namespace: "{{ '{{ namespace }}' }}"
+          spec:
+            code: "{{ public_grant.resources[0].status.code }}"
+            url: "{{ public_grant.resources[0].status.url }}"
+            ca: |
+              {{ public_grant.resources[0].status.ca | indent(width=4, first=False) }}
+
+- name: Linking private-kube site to public
+  hosts: private-kube
+  tasks:
+    - name: Redeem an AccessToken
+      kubernetes.core.k8s:
+        state: present
+        template: /tmp/public-grant.yml
+
+- name: Linking private-podman site to public
+  hosts: private-podman
+  tasks:
+    - name: Save AccessToken
+      ansible.builtin.template:
+        src: "/tmp/public-grant.yml"
+        dest: "{{ namespace_home }}/input/resources/link-public.yaml"
+        mode: "0644"
+
+- name: Initialize Podman site
+  hosts: private-podman
+  tasks:
+    - name: Download bootstrap script
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/skupperproject/skupper/refs/heads/v2/cmd/bootstrap/bootstrap.sh
+        dest: /tmp/bootstrap.sh
+        mode: "0755"
+    - name: Executing bootstrap
+      ansible.builtin.command:
+        argv:
+          - /tmp/bootstrap.sh
+        creates: "{{ namespace_home }}/runtime"
+    - name: Saving static link
+      ansible.builtin.copy:
+        src: "{{ namespace_home }}/runtime/links/link-private-podman-host.minikube.internal.yaml"
+        dest: /tmp/private-podman.yml
+        mode: "0644"
+
+- name: Linking private-kube to private-podman
+  hosts: private-kube
+  tasks:
+    - name: Updating static link with target namespace
+      ansible.builtin.replace:
+        path: /tmp/private-podman.yml
+        regexp: '^(  name: link-private-podman)$'
+        replace: '\g<1>\n  namespace: {{ namespace }}'
+    - name: Saving static link
+      kubernetes.core.k8s:
+        state: present
+        src: "/tmp/private-podman.yml"
