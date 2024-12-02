@@ -109,6 +109,9 @@ from ansible.module_utils.urls import fetch_url
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.args import (
     common_args
 )
+from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common import (
+    is_non_kube
+)
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
     load,
     dump,
@@ -166,7 +169,6 @@ class ResourceModule:
             else:
                 definitions = load(self.params["path"], platform)
                 definition_found = True
-        # self.module.debug("resources loaded: %s" %(definitions))
         elif "def" in self.params and self.params["def"]:
             definition_found = True
             definitions = self.params["def"]
@@ -178,12 +180,11 @@ class ResourceModule:
         state = self.params.get("state", "present")
         overwrite = state == "latest"
         try:
-            if platform in ("podman", "docker", "systemd"):
+            if is_non_kube(platform):
                 namespace = self.params["namespace"] or "default"
                 if state == "absent":
                     changed = resource_delete(definitions, namespace)
                 else:
-                    self.module.debug("DEFINITIONS: %s" %(definitions))
                     changed = dump(definitions, namespace, overwrite)
             else:
                 kubeconfig = self.params.get("kubeconfig") or os.path.join(os.getenv("HOME"), ".kube", "config")

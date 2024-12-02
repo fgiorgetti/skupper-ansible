@@ -1,0 +1,16 @@
+---
+- name: Example playbook
+  hosts: all
+  tasks:
+    - name: Testing the token module
+      fgiorgetti.skupperv2.token:
+        namespace: west
+    - name: Testing the token module
+      fgiorgetti.skupperv2.token:
+        platform: podman
+        host: 192.168.124.1
+    - name: k8s get accessgrants
+      kubernetes.core.k8s_info:
+        namespace: west
+        api: skupper.io/v2alpha1
+        kind: AccessGrant

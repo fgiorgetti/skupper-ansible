@@ -1,9 +1,0 @@
----
-- name: Example playbook
-  hosts: localhost
-  # roles:
-  #   - role: fgiorgetti.skupperv2.run
-  tasks:
-    - name: Let the banana rock
-      fgiorgetti.skupperv2.banana:
-        platform: podman
