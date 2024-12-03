@@ -5,6 +5,7 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.k8s import (
     create_or_patch,
     delete as k8s_delete,
     get as k8s_get,
+    has_condition
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
     load,
@@ -79,19 +80,24 @@ token:
 """
 
 EXAMPLES = r'''
-# Retrieving or issue a token
+# Retrieving or issue a token (if my-grant does not exist or can be redeemed)
 - name: Retrieve token
   fgiorgetti.skupperv2.token:
     name: my-grant
     platform: kubernetes
     namespace: west
 
-# Generate an AccessToken for 
+# Retrieving an accesstoken for any valid accessgrant
+- name: Retrieve token
+  fgiorgetti.skupperv2.token:
+    platform: kubernetes
+    namespace: west
+
+# Retrieve a static Link for host my.nonkube.host
 - name: Retrieve a static link
   fgiorgetti.skupperv2.token:
     host: my.nonkube.host
     platform: podman
-    namespace: default
 '''
 
 
@@ -109,6 +115,8 @@ def mutualexc():
 class TokenModule:
     def __init__(self, module: AnsibleModule):
         self.module = module
+        self._max_attempts = 6
+        self._retry_delay = 5
 
     def run(self):
         result = dict(
@@ -183,24 +191,37 @@ class TokenModule:
         context = self.params.get("context")
         namespace = self.params.get("namespace")
         try:
-            access_grants = k8s_get(
-                kubeconfig, context, namespace, "skupper.io/v2alpha1", "AccessGrant", name)
             access_grant = {}
-            match access_grants:
-                case dict():
-                    if not self.is_grant_ready(access_grants) or not self.can_be_redeemed(access_grants):
-                        raise RuntimeException(msg="accessgrant '%s' cannot be redeemed" % (name))
-                    access_grant = access_grants
-                case list():
-                    for access_grant_it in access_grants:
-                        if not self.is_grant_ready(access_grant_it):
-                            continue
-                        if not self.can_be_redeemed(access_grant_it):
-                            continue
-                        access_grant = access_grant_it
-                        break
+            for attempt in range(self._max_attempts):
+                self.module.debug("retrieving accessgrants attempt %d/%d" %(attempt, self._max_attempts))
+                access_grants = k8s_get(kubeconfig, context, namespace, "skupper.io/v2alpha1", "AccessGrant", name)
+                if len(access_grants) == 0:
+                    break
+                match access_grants:
+                    case dict():
+                         if has_condition(access_grants, "Ready"):
+                            access_grant = access_grants
+                            break
+                    case list():
+                        all_ready = True
+                        for access_grant_it in access_grants:
+                            if has_condition(access_grant_it, "Ready"):
+                                if self.can_be_redeemed(access_grant_it):
+                                    access_grant = access_grant_it
+                                    break
+                            else:
+                                all_ready = False
+                        if all_ready:
+                            break
+                time.sleep(self._retry_delay)
+
+            if name:
+                if not has_condition(access_grant, "Ready") or not self.can_be_redeemed(access_grant):
+                    raise RuntimeException(msg="accessgrant '%s' cannot be redeemed" % (name))
+
             if len(access_grant) == 0:
                 return ""
+
             access_token_name = "token-%s" % (
                 access_grant.get("metadata").get("name"))
             access_token_code = access_grant.get("status").get("code")

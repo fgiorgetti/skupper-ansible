@@ -100,3 +100,10 @@ def get(kubeconfig: str, context: str, namespace: str, version: str, kind: str, 
         message = "reason: %s - status: %s - message: %s" % (
             apiEx.reason, apiEx.status, body.get("message"))
         raise (K8sException(message, status=apiEx.status))
+
+
+def has_condition(res: dict, condition: str, status:bool=True) -> bool:
+    for res_condition in res.get("status", {}).get("conditions", []):
+        if res_condition.get("type", "") == condition and res_condition.get("status", "False") == str(status):
+            return True
+    return False
