@@ -30,7 +30,7 @@
   hosts: all
   tasks:
     - name: Creating Skupper resources
-      fgiorgetti.skupperv2.resources:
+      fgiorgetti.skupperv2.resource:
         src: "{{ resources_path }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
@@ -41,15 +41,14 @@
     - name: Issue a Skupper access token
       fgiorgetti.skupperv2.token:
         namespace: "{{ namespace }}"
-        redemptionsAllowed: 2
       register: public_token
 
 - name: Linking private sites to public
   hosts: private
   tasks:
     - name: Saving access token
-      fgiorgetti.skupperv2.resources:
-        definition: "{{ public_token }}"
+      fgiorgetti.skupperv2.resource:
+        definition: "{{ public_token.token }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
 
@@ -65,7 +64,7 @@
   hosts: private-kube
   tasks:
     - name: Saving static link
-      fgiorgetti.skupperv2.resources:
+      fgiorgetti.skupperv2.resource:
         definition: "{{ private_podman['links']['host.minikube.internal'] }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"

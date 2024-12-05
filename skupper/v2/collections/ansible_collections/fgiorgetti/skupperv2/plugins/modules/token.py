@@ -153,7 +153,7 @@ class TokenModule:
                 changed = True
                 token_link = self.load_from_grant(namespace, grant_name)
 
-        # adding as a fact
+        # adding return values
         if token_link:
             result['token'] = token_link
 

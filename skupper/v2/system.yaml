@@ -1,0 +1,43 @@
+---
+- name: Example playbook
+  hosts: all
+  tasks:
+#    - name: initializing the default namespace
+#      fgiorgetti.skupperv2.system:
+#    - name: reload the default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: reload
+#    - name: generate a site bundle selfextract
+#      fgiorgetti.skupperv2.system:
+#        state: bundle
+#      register: bundle_out
+#    - name: saving bundle as a file
+#      ansible.builtin.copy:
+#        dest: /tmp/bundle.sh
+#        content: "{{ bundle_out.bundle | b64decode }}"
+#        mode: '0755'
+#    - name: generate a site bundle tarball
+#      fgiorgetti.skupperv2.system:
+#        state: tarball
+#      register: bundle_out
+#    - name: saving bundle tarball as a file
+#      ansible.builtin.copy:
+#        dest: /tmp/bundle.tar.gz
+#        content: "{{ bundle_out.bundle | b64decode }}"
+#        mode: '0644'
+
+    - name: starting default namespace
+      fgiorgetti.skupperv2.system:
+        state: start
+#    - name: starting default namespace (noop)
+#      fgiorgetti.skupperv2.system:
+#        state: start
+#    - name: stopping default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: stop
+#    - name: stopping default namespace (noop)
+#      fgiorgetti.skupperv2.system:
+#        state: stop
+#    - name: starting default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: start
