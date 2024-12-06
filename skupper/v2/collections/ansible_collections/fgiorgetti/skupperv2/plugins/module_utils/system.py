@@ -81,10 +81,19 @@ def systemd_available(module: AnsibleModule) -> bool:
 
 
 def systemd_create(module: AnsibleModule, service_name: str, service_file: str) -> bool:
-    with open(service_file, "r") as in_file:
-        with open(os.path.join(service_dir(), service_name), "w") as out_file:
-            content = in_file.read()
-            out_file.write(content)
+    changed = False
+    target_service_file = os.path.join(service_dir(), service_name)
+    try:
+        with open(service_file, "r") as in_file:
+            with open(target_service_file, "w") as out_file:
+                module.debug("writing service file: %s" % (target_service_file))
+                content = in_file.read()
+                wrote = out_file.write(content)
+                module.debug("wrote: %d/%d" % (len(content), wrote))
+                changed = True
+    except Exception as ex:
+        module.warn("error writing service file '%s': %s" % (target_service_file, ex))
+        return changed
     base_command = ["systemctl"]
     if os.getuid() != 0:
         base_command.append("--user")
@@ -94,10 +103,14 @@ def systemd_create(module: AnsibleModule, service_name: str, service_file: str) 
     if code != 0:
         module.warn(
             "error enabling service '%s': %s" % (service_name, err))
+    else:
+        changed = True
     code, _, err = run_command(module, reload_command)
     if code != 0:
         module.warn("error reloading systemd daemon: %s" % (err))
-    return code == 0
+    else:
+        changed = True
+    return changed
 
 
 def start_service(module: AnsibleModule, namespace: str) -> bool:
@@ -140,3 +153,51 @@ def create_service(module: AnsibleModule, namespace: str = "default") -> bool:
             "SystemD service has not been defined: %s" % (file))
         return
     return systemd_create(module, name, file)
+
+
+def systemd_delete(module: AnsibleModule, service_name: str) -> bool:
+    changed = False
+    service_file = os.path.join(service_dir(), service_name)
+    if not os.path.isfile(service_file):
+        module.warn(
+            "SystemD service has not been defined: %s" % (service_file))
+
+    base_command = ["systemctl"]
+    if os.getuid() != 0:
+        base_command.append("--user")
+
+    disable_command = base_command + ["disable", "--now", service_name]
+    reload_command = base_command + ["daemon-reload"]
+    reset_command = base_command + ["reset-failed"]
+
+    # stopping service
+    code, _, err = run_command(module, disable_command)
+    if code != 0:
+        module.warn(
+            "error stopping service '%s': %s" % (service_name, err))
+    else:
+        changed = True
+
+    # removing service file
+    try:
+        os.remove(service_file)
+        changed = True
+    except Exception as ex:
+        module.warn("error removing service file '%s': %s" % (service_file, err))
+
+    # reloading systemd
+    for command in [reload_command, reset_command]:
+        code, _, err = run_command(module, command)
+        if code != 0:
+            module.warn("error running systemd command '%s': %s" % (command, err))
+        else:
+            changed = True
+
+    return changed
+
+
+def delete_service(module: AnsibleModule, namespace: str = "default") -> bool:
+    if not systemd_available(module):
+        return
+    name = service_name(namespace)
+    return systemd_delete(module, name)

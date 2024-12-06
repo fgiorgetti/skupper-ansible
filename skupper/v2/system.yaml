@@ -2,6 +2,11 @@
 - name: Example playbook
   hosts: all
   tasks:
+    - name: adding west resources
+      fgiorgetti.skupperv2.resource:
+        path: /tmp/input/resources
+        namespace: west
+        platform: podman
 #    - name: initializing the default namespace
 #      fgiorgetti.skupperv2.system:
 #    - name: reload the default namespace
@@ -25,10 +30,10 @@
 #        dest: /tmp/bundle.tar.gz
 #        content: "{{ bundle_out.bundle | b64decode }}"
 #        mode: '0644'
-
-    - name: starting default namespace
-      fgiorgetti.skupperv2.system:
-        state: start
+#
+#    - name: starting default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: start
 #    - name: starting default namespace (noop)
 #      fgiorgetti.skupperv2.system:
 #        state: start
@@ -41,3 +46,17 @@
 #    - name: starting default namespace
 #      fgiorgetti.skupperv2.system:
 #        state: start
+    - name: setup west
+      fgiorgetti.skupperv2.system:
+        state: setup
+        namespace: west
+#    - name: removing default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: teardown
+    - name: removing default namespace
+      fgiorgetti.skupperv2.system:
+        state: teardown
+        namespace: "{{ item }}"
+      loop:
+        - west
+        - east

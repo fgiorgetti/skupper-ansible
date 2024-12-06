@@ -1,0 +1,12 @@
+---
+- name: Python module dependencies
+  hosts: all
+  tasks:
+    - name: collection deps
+      ansible.builtin.pip:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - pip
+        - PyYAML
+        - kubernetes

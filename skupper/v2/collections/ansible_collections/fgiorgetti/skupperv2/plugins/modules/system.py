@@ -20,6 +20,7 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.system import
     runas,
     userns,
     create_service,
+    delete_service,
     start_service,
     stop_service
 )
@@ -35,6 +36,7 @@ from ansible.module_utils.basic import AnsibleModule
 import time
 import yaml
 import os
+import shutil
 import base64
 import copy
 __metaclass__ = type
@@ -232,7 +234,7 @@ class SystemModule:
         return self.module.params
 
     def setup(self, platform: str, namespace: str = "default", force: bool = False, strategy: str = "") -> bool:
-        self.module.debug("namespace: %s" %(namespace))
+        self.module.debug("namespace: %s" % (namespace))
         runtime_dir = os.path.join(namespace_home(namespace), "runtime")
         if not strategy and os.path.isdir(runtime_dir) and not force:
             self.module.warn("namespace '%s' already exists" % (namespace))
@@ -265,7 +267,8 @@ class SystemModule:
 
         code, out, err = run_command(self.module, command)
         if code != 0:
-            msg = "error setting up '%s' namespace: %s" % (namespace, out or err)
+            msg = "error setting up '%s' namespace: %s" % (
+                namespace, out or err)
             self.module.fail_json(msg)
             return False
 
@@ -273,7 +276,32 @@ class SystemModule:
             create_service(self.module, namespace)
 
         return True
-    
+
+    def teardown(self, namespace: str = "default") -> bool:
+        runtime_dir = os.path.join(namespace_home(namespace), "runtime")
+        changed = False
+        if not os.path.isdir(runtime_dir):
+            return changed
+        changed = delete_service(self.module, namespace)
+        with open(os.path.join(runtime_dir, "platform.yaml"), "r") as platform_file:
+            platform_obj = yaml.safe_load(platform_file)
+            platform = platform_obj.get("platform", "")
+            if platform in ("podman", "docker"):
+                container = "%s-skupper-router" % (namespace)
+                remove_cmd = [platform, "rm", "-f", container]
+                code, _, err = self.module.run_command(remove_cmd)
+                if code == 0:
+                    changed = True
+                else:
+                    self.module.warn("error removing container '%s': %s" % (container, err))
+        try:
+            shutil.rmtree(namespace_home(namespace))
+            changed = True
+        except Exception as ex:
+            self.module.fail_json(
+                "unable to remove '%s' namespace definition: %s" % (namespace, ex))
+        return changed
+
     def _read_site_name(self, platform: str, namespace: str = "default") -> str:
         home = namespace_home(namespace)
         resources_path = os.path.join(home, "input", "resources")

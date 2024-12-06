@@ -9,10 +9,7 @@ collections:
   - name: ansible.utils
     version: 4.0.0
 
-  - name: cisco.ios
-
-  - name: https://github.com/redhat-cop/network.backup
-    type: git
+  - name: kubernetes.core
 
   # TO-DO: User's own collections can also be specified as mention below.
   # - name: my_organization.my_collection

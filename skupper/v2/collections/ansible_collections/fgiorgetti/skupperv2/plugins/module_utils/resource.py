@@ -63,6 +63,9 @@ def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
         name = obj.get("metadata", {}).get("name")
         if not name or not allowed(obj):
             continue
+        obj_namespace = obj.get("metadata", {}).get("namespace", "")
+        if obj_namespace == "":
+            obj["metadata"]["namespace"] = namespace
         filename = os.path.join(home, "%s-%s.yaml" % (kind, name))
         if os.path.exists(filename) and not overwrite:
             continue

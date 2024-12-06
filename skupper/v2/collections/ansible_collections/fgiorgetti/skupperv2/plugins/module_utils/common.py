@@ -39,6 +39,6 @@ def config_dir() -> str:
 
 def service_dir() -> str:
     base_path = config_dir()
-    if os.getuid == 0:
+    if os.getuid() == 0:
         return os.path.join(base_path, "systemd", "system")
     return os.path.join(base_path, "systemd", "user")
