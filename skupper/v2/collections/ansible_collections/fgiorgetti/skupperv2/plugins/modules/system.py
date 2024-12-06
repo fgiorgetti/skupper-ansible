@@ -33,6 +33,7 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.exceptions im
 )
 from ansible.module_utils.urls import fetch_url
 from ansible.module_utils.basic import AnsibleModule
+import glob
 import time
 import yaml
 import os
@@ -107,6 +108,14 @@ bundle:
   - Only populated when state is bundle or tarball
   returned: success
   type: str
+links:
+  description:
+  - Static links generated for non-kube sites with a RouterAccess
+  - Dictionary keys are the target hostname or ip of the link
+  - Each value has a valid link that can be applied to another site
+  returned: when platform in ('podman', 'docker', 'systemd') and a RouterAccess is defined
+  type: dict
+  sample: {'my.host': '---\napiVersion: skupper.io/v2alpha1...'}
 """
 
 EXAMPLES = r'''
@@ -223,6 +232,8 @@ class SystemModule:
                 with open(path, 'rb') as bundle:
                     bundle_encoded = base64.b64encode(bundle.read())
                     result['bundle'] = bundle_encoded.decode('utf-8')
+        if self._state in ("setup", "reload"):
+            result["links"] = self.load_static_links(namespace)
 
         # preparing response
         result["path"] = path
@@ -293,7 +304,8 @@ class SystemModule:
                 if code == 0:
                     changed = True
                 else:
-                    self.module.warn("error removing container '%s': %s" % (container, err))
+                    self.module.warn(
+                        "error removing container '%s': %s" % (container, err))
         try:
             shutil.rmtree(namespace_home(namespace))
             changed = True
@@ -301,6 +313,24 @@ class SystemModule:
             self.module.fail_json(
                 "unable to remove '%s' namespace definition: %s" % (namespace, ex))
         return changed
+
+    def load_static_links(self, namespace) -> dict:
+        links = dict()
+        home = namespace_home(namespace)
+        links_path = os.path.join(home, "runtime", "links")
+        links_search = os.path.join(links_path, "*.yaml")
+        links_found = glob.glob(links_search)
+        for link in links_found:
+            with open(link) as f:
+                link_content = f.read()
+                for obj in yaml.safe_load_all(link_content):
+                    if type(obj) != dict or obj.get("kind", "") != "Link":
+                        continue
+                    for endpoint in obj.get("spec", {}).get("endpoints", []):
+                        host = endpoint.get("host", "")
+                        if host:
+                            links[host] = link_content
+        return links
 
     def _read_site_name(self, platform: str, namespace: str = "default") -> str:
         home = namespace_home(namespace)

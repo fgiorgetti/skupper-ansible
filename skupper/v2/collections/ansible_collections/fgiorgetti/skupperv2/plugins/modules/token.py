@@ -54,6 +54,15 @@ options:
         - Name of the AccessGrant (to be generated or consumed) and AccessToken (kubernetes platform only)
         - Name of a RouterAccess (podman, docker or systemd platforms)
         type: str
+    redemptionsAllowed:
+        description:
+        - The number of claims the generated AccessGrant is valid for
+        type: int
+    expirationWindow:
+        description:
+        - Duration of the generated AccessGrant
+        - Samples: "10m", "2h"
+        type: str
     host:
         description:
         - Static link hostname (podman, docker or systemd platforms)
@@ -105,6 +114,8 @@ def argspec():
     spec = copy.deepcopy(common_args())
     spec["name"] = dict(type="str", default=None, required=False)
     spec["host"] = dict(type="str", default=None, required=False)
+    spec["redemptionsAllowed"] = dict(type="int", required=False)
+    spec["expirationWindow"] = dict(type="str", required=False)
     return spec
 
 
@@ -132,6 +143,8 @@ class TokenModule:
         name = self.params.get("name")
         host = self.params.get("host")
         namespace = self.params.get("namespace")
+        redemptionsAllowed = self.params.get("redemptionsAllowed") or 1
+        expirationWindow = self.params.get("expirationWindow") or "15m"
 
         changed = False
 
@@ -146,12 +159,15 @@ class TokenModule:
             if not token_link:
                 grant_name = name or "ansible-grant-%d" % (int(time.time()))
                 try:
-                    if not self.generate_grant(namespace, grant_name):
+                    if not self.generate_grant(namespace, grant_name, redemptionsAllowed, expirationWindow):
                         self.module.fail_json("unable to create AccessGrant: '%s'" %(grant_name))
                 except Exception as ex:
                         raise RuntimeException("error creating AccessGrant: '%s'" %(grant_name))
                 changed = True
-                token_link = self.load_from_grant(namespace, grant_name)
+                try:
+                    token_link = self.load_from_grant(namespace, grant_name)
+                except RuntimeException as runtimeEx:
+                    self.module.fail_json(runtimeEx.msg)
 
         # adding return values
         if token_link:
@@ -244,7 +260,7 @@ class TokenModule:
             if ex.status != 404:
                 raise (ex)
 
-    def generate_grant(self, namespace, name):
+    def generate_grant(self, namespace, name, redemptionsAllowed, expirationWindow):
         kubeconfig = self.params.get("kubeconfig") or os.path.join(
             os.getenv("HOME"), ".kube", "config")
         context = self.params.get("context")
@@ -256,7 +272,8 @@ class TokenModule:
                     "name": name,
             },
             "spec": {
-                "redemptionsAllowed": 1,
+                "redemptionsAllowed": redemptionsAllowed,
+                "expirationWindow": expirationWindow,
             }
         }
         access_grant_def = yaml.safe_dump(access_grant_dict, indent=2)

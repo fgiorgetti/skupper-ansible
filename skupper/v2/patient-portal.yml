@@ -26,45 +26,39 @@
           - 5432:5432
         remove: true
 
-- name: Add Skupper Resources
+- name: Set up the Skupper Network
   hosts: all
   tasks:
     - name: Creating Skupper resources
       fgiorgetti.skupperv2.resource:
-        src: "{{ resources_path }}"
+        path: "{{ resources_path }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
 
-- name: Public token
-  hosts: public
-  tasks:
     - name: Issue a Skupper access token
       fgiorgetti.skupperv2.token:
         namespace: "{{ namespace }}"
+        name: public-grant
+        redemptionsAllowed: 2
       register: public_token
+      when: inventory_hostname == 'public'
 
-- name: Linking private sites to public
-  hosts: private
-  tasks:
-    - name: Saving access token
+    - name: Saving access token to private sites
       fgiorgetti.skupperv2.resource:
-        definition: "{{ public_token.token }}"
+        def: "{{ hostvars['public']['public_token']['token'] }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
+      when: inventory_hostname in groups['private']
 
-- name: Initialize Podman site
-  hosts: private-podman
-  tasks:
     - name: System setup
       fgiorgetti.skupperv2.system:
-        action: setup
-      register: private_podman
+        state: setup
+      register: podman_out
+      when: inventory_hostname == 'private-podman'
 
-- name: Linking private-kube to private-podman
-  hosts: private-kube
-  tasks:
-    - name: Saving static link
+    - name: Create static link on private-kube
       fgiorgetti.skupperv2.resource:
-        definition: "{{ private_podman['links']['host.minikube.internal'] }}"
+        definition: "{{ hostvars['private-podman']['podman_out']['links']['host.minikube.internal'] }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
+      when: inventory_hostname == 'private-kube'

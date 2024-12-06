@@ -53,10 +53,10 @@
 #    - name: removing default namespace
 #      fgiorgetti.skupperv2.system:
 #        state: teardown
-    - name: removing default namespace
-      fgiorgetti.skupperv2.system:
-        state: teardown
-        namespace: "{{ item }}"
-      loop:
-        - west
-        - east
+#    - name: removing default namespace
+#      fgiorgetti.skupperv2.system:
+#        state: teardown
+#        namespace: "{{ item }}"
+#      loop:
+#        - west
+#        - east
