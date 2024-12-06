@@ -46,6 +46,7 @@
     - name: Saving access token to private sites
       fgiorgetti.skupperv2.resource:
         def: "{{ hostvars['public']['public_token']['token'] }}"
+        state: latest
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
       when: inventory_hostname in groups['private']
@@ -61,4 +62,4 @@
         definition: "{{ hostvars['private-podman']['podman_out']['links']['host.minikube.internal'] }}"
         namespace: "{{ namespace }}"
         platform: "{{ platform }}"
-      when: inventory_hostname == 'private-kube'
+      when: inventory_hostname == 'private-kube' and hostvars['private-podman']['podman_out']['links'] is defined
