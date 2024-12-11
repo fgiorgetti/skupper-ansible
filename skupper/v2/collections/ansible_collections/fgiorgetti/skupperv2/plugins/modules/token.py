@@ -1,20 +1,22 @@
 #!/usr/bin/python
 
 from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+import time
+import os
+import glob
+import copy
+import yaml
+
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.k8s import (
-    create_or_patch,
-    delete as k8s_delete,
-    get as k8s_get,
+    K8sClient,
     has_condition
 )
-from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
-    load,
-    dump,
-    delete as resource_delete
-)
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.args import (
-    add_fact,
-    common_args
+    common_args,
+    is_valid_name,
+    is_valid_host_ip
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common import (
     is_non_kube,
@@ -24,14 +26,8 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.exceptions im
     K8sException,
     RuntimeException
 )
-from ansible.module_utils.urls import fetch_url
 from ansible.module_utils.basic import AnsibleModule
-import time
-import yaml
-import os
-import glob
-import copy
-__metaclass__ = type
+
 
 DOCUMENTATION = r'''
 ---
@@ -61,19 +57,19 @@ options:
     expirationWindow:
         description:
         - Duration of the generated AccessGrant
-        - Samples: "10m", "2h"
+        - Sample values: 10m, 2h
         type: str
     host:
         description:
         - Static link hostname (podman, docker or systemd platforms)
 
 extends_documentation_fragment:
-  - fgiorgetti.skupperv2.common_options
+    - fgiorgetti.skupperv2.common_options
 
 requirements:
-  - "python >= 3.9"
-  - "kubernetes >= 24.2.0"
-  - "PyYAML >= 3.11"
+    - "python >= 3.9"
+    - "kubernetes >= 24.2.0"
+    - "PyYAML >= 3.11"
 
 author:
     - Fernando Giorgetti (@fgiorgetti)
@@ -114,8 +110,8 @@ def argspec():
     spec = copy.deepcopy(common_args())
     spec["name"] = dict(type="str", default=None, required=False)
     spec["host"] = dict(type="str", default=None, required=False)
-    spec["redemptionsAllowed"] = dict(type="int", required=False)
-    spec["expirationWindow"] = dict(type="str", required=False)
+    spec["redemptionsAllowed"] = dict(type="int", default=1)
+    spec["expirationWindow"] = dict(type="str", default="15m")
     return spec
 
 
@@ -126,8 +122,19 @@ def mutualexc():
 class TokenModule:
     def __init__(self, module: AnsibleModule):
         self.module = module
-        self._max_attempts = 6
-        self._retry_delay = 5
+        self.name = self.params.get("name")
+        self.host = self.params.get("host")
+        self.platform = self.params.get("platform", "kubernetes")
+        self.kubeconfig = self.params.get("kubeconfig") or \
+            os.path.join(os.getenv("HOME"), ".kube", "config")
+        self.context = self.params.get("context")
+        self.namespace = self.params.get("namespace")
+        if self.name and not is_valid_name(self.name):
+            self.module.fail_json("invalid name (rfc1123): {}".format(self.name))
+        if self.namespace and not is_valid_name(self.namespace):
+            self.module.fail_json("invalid namespace (rfc1123): {}".format(self.namespace))
+        if self.host and not is_valid_host_ip(self.host):
+            self.module.fail_json("invalid host: {}".format(self.host))
 
     def run(self):
         result = dict(
@@ -135,39 +142,33 @@ class TokenModule:
         )
         if self.module.check_mode:
             self.module.exit_json(**result)
-
-        # TODO disable debug mode
-        self.module._debug = True
-
-        platform = self.params.get("platform", "kubernetes")
-        name = self.params.get("name")
-        host = self.params.get("host")
-        namespace = self.params.get("namespace")
-        redemptionsAllowed = self.params.get("redemptionsAllowed") or 1
-        expirationWindow = self.params.get("expirationWindow") or "15m"
+        # self.module._debug = True
 
         changed = False
-
         token_link = ""
-        if is_non_kube(platform):
-            token_link = self.load_static_link(namespace, name, host)
+
+        if is_non_kube(self.platform):
+            token_link = self.load_static_link()
         else:
             try:
-                token_link = self.load_from_grant(namespace, name)
-            except RuntimeException as runtimeEx:
-                self.module.fail_json(runtimeEx.msg)
+                token_link = self.load_from_grant(self.name)
+            except RuntimeException as runtime_ex:
+                self.module.fail_json(runtime_ex.msg)
             if not token_link:
-                grant_name = name or "ansible-grant-%d" % (int(time.time()))
+                grant_name = self.name or "ansible-grant-%d" % (
+                    int(time.time()))
                 try:
-                    if not self.generate_grant(namespace, grant_name, redemptionsAllowed, expirationWindow):
-                        self.module.fail_json("unable to create AccessGrant: '%s'" %(grant_name))
+                    if not self.generate_grant(grant_name):
+                        self.module.fail_json(
+                            "unable to create AccessGrant: '%s'" % (grant_name))
                 except Exception as ex:
-                        raise RuntimeException("error creating AccessGrant: '%s'" %(grant_name))
+                    raise RuntimeException(
+                        "error creating AccessGrant: '%s'" % (grant_name)) from ex
                 changed = True
                 try:
-                    token_link = self.load_from_grant(namespace, grant_name)
-                except RuntimeException as runtimeEx:
-                    self.module.fail_json(runtimeEx.msg)
+                    token_link = self.load_from_grant(grant_name)
+                except RuntimeException as runtime_ex:
+                    self.module.fail_json(runtime_ex.msg)
 
         # adding return values
         if token_link:
@@ -177,23 +178,23 @@ class TokenModule:
 
         self.module.exit_json(**result)
 
-    def load_static_link(self, namespace, name, host):
-        home = namespace_home(namespace)
+    def load_static_link(self):
+        home = namespace_home(self.namespace)
         links_path = os.path.join(home, "runtime", "links")
         links_search = os.path.join(
-            links_path, "link-%s-%s.yaml" % (name or "*", host or "*"))
+            links_path, "link-%s-%s.yaml" % (self.name or "*", self.host or "*"))
         links_found = glob.glob(links_search)
         for link in links_found:
-            with open(link) as f:
+            with open(link, "r", encoding='utf-8') as f:
                 link_content = f.read()
                 return link_content
         return ""
 
     def is_grant_ready(self, access_grant: dict) -> bool:
         for condition in access_grant.get("status", {}).get("conditions", []):
-            if condition.get("type", "") == "Ready" and condition.get("status", "False") == "True":
+            if condition.get("type", "") == "Ready" and \
+                    condition.get("status", "False") == "True":
                 return True
-                break
         return False
 
     def can_be_redeemed(self, access_grant: dict) -> bool:
@@ -201,70 +202,88 @@ class TokenModule:
         redeemed = access_grant.get("status", {}).get("redeemed", 0)
         return redeemed < allowed
 
-    def load_from_grant(self, namespace, name):
-        kubeconfig = self.params.get("kubeconfig") or os.path.join(
-            os.getenv("HOME"), ".kube", "config")
-        context = self.params.get("context")
-        namespace = self.params.get("namespace")
-        try:
-            access_grant = {}
-            for attempt in range(self._max_attempts):
-                self.module.debug("retrieving accessgrants attempt %d/%d" %(attempt, self._max_attempts))
-                access_grants = k8s_get(kubeconfig, context, namespace, "skupper.io/v2alpha1", "AccessGrant", name)
-                if len(access_grants) == 0:
+    def load_from_grant(self, name: str) -> str:
+        max_attempts = 6
+        retry_delay = 5
+        k8s = K8sClient(self.kubeconfig, self.context)
+        site_ready = False
+        for attempt in range(max_attempts):
+            try:
+                sites = k8s.get(self.namespace, "skupper.io/v2alpha1", "Site", "")
+                if not sites:
+                    return ""
+                for site in sites:
+                    if has_condition(site, "Ready"):
+                        site_ready = True
+                        break
+            except K8sException as ex:
+                    if ex.status != 404:
+                        raise ex
+            if site_ready:
+                break
+            time.sleep(retry_delay)
+        access_grant = {}
+        for attempt in range(max_attempts):
+            self.module.debug("retrieving accessgrants attempt %d/%d"
+                                % (attempt, max_attempts))
+            access_grants = None
+            try:
+                access_grants = k8s.get(self.namespace, "skupper.io/v2alpha1", "AccessGrant", name)
+            except K8sException as ex:
+                if ex.status != 404:
+                    raise ex
+            if not access_grants or len(access_grants) == 0:
+                break
+            if isinstance(access_grants, dict) and has_condition(access_grants, "Ready"):
+                access_grant = access_grants
+                break
+            if isinstance(access_grants, list):
+                access_grant, all_ready = self._load_from_list(access_grants)
+                if all_ready:
                     break
-                match access_grants:
-                    case dict():
-                         if has_condition(access_grants, "Ready"):
-                            access_grant = access_grants
-                            break
-                    case list():
-                        all_ready = True
-                        for access_grant_it in access_grants:
-                            if has_condition(access_grant_it, "Ready"):
-                                if self.can_be_redeemed(access_grant_it):
-                                    access_grant = access_grant_it
-                                    break
-                            else:
-                                all_ready = False
-                        if all_ready:
-                            break
-                time.sleep(self._retry_delay)
+            time.sleep(retry_delay)
 
-            if name:
-                if not has_condition(access_grant, "Ready") or not self.can_be_redeemed(access_grant):
-                    raise RuntimeException(msg="accessgrant '%s' cannot be redeemed" % (name))
+        if len(access_grant) == 0:
+            return ""
 
-            if len(access_grant) == 0:
-                return ""
+        if name:
+            if not has_condition(access_grant, "Ready") or \
+                not self.can_be_redeemed(access_grant):
+                raise RuntimeException(
+                    msg="accessgrant '%s' cannot be redeemed" % (name))
 
-            access_token_name = "token-%s" % (
-                access_grant.get("metadata").get("name"))
-            access_token_code = access_grant.get("status").get("code")
-            access_token_url = access_grant.get("status").get("url")
-            access_token_ca = access_grant.get("status").get("ca")
-            access_token = {
-                "apiVersion": "skupper.io/v2alpha1",
-                "kind": "AccessToken",
-                "metadata": {
-                    "name": access_token_name,
-                },
-                "spec": {
-                    "code": access_token_code,
-                    "url": access_token_url,
-                    "ca": access_token_ca,
-                }
+        access_token_name = "token-%s" % (
+            access_grant.get("metadata").get("name"))
+        access_token_code = access_grant.get("status").get("code")
+        access_token_url = access_grant.get("status").get("url")
+        access_token_ca = access_grant.get("status").get("ca")
+        access_token = {
+            "apiVersion": "skupper.io/v2alpha1",
+            "kind": "AccessToken",
+            "metadata": {
+                "name": access_token_name,
+            },
+            "spec": {
+                "code": access_token_code,
+                "url": access_token_url,
+                "ca": access_token_ca,
             }
-            return yaml.safe_dump(access_token, indent=2)
-        except K8sException as ex:
-            if ex.status != 404:
-                raise (ex)
+        }
+        return yaml.safe_dump(access_token, indent=2)
 
-    def generate_grant(self, namespace, name, redemptionsAllowed, expirationWindow):
-        kubeconfig = self.params.get("kubeconfig") or os.path.join(
-            os.getenv("HOME"), ".kube", "config")
-        context = self.params.get("context")
-        namespace = self.params.get("namespace")
+    def _load_from_list(self, access_grants) -> tuple[dict, bool]:
+        all_ready = True
+        access_grant = {}
+        for access_grant_it in access_grants:
+            if not has_condition(access_grant_it, "Ready"):
+                all_ready = False
+                continue
+            if not access_grant and self.can_be_redeemed(access_grant_it):
+                access_grant = access_grant_it
+        return access_grant, all_ready
+
+    def generate_grant(self, name: str):
+        k8s = K8sClient(self.kubeconfig, self.context)
         access_grant_dict = {
             "apiVersion": "skupper.io/v2alpha1",
             "kind": "AccessGrant",
@@ -272,12 +291,12 @@ class TokenModule:
                     "name": name,
             },
             "spec": {
-                "redemptionsAllowed": redemptionsAllowed,
-                "expirationWindow": expirationWindow,
+                "redemptionsAllowed": self.params.get("redemptionsAllowed"),
+                "expirationWindow": self.params.get("expirationWindow"),
             }
         }
         access_grant_def = yaml.safe_dump(access_grant_dict, indent=2)
-        return create_or_patch(kubeconfig, context, namespace, access_grant_def, False)
+        return k8s.create_or_patch(self.namespace, access_grant_def, False)
 
     @property
     def params(self):

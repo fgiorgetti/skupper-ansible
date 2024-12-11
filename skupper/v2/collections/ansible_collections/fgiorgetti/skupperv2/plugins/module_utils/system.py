@@ -1,16 +1,15 @@
-from typing import Final
+import grp
+import os
+from ansible.module_utils.basic import AnsibleModule
 from .common import runtime_dir, data_home, service_dir, namespace_home
 from .command import run_command
 from .exceptions import RuntimeException
-from ansible.module_utils.basic import AnsibleModule
-import grp
-import os
 
 
 def container_endpoint(engine: str = "podman") -> str:
-    env = os.environ.get("CONTAINER_ENDPOINT")
-    if env:
-        return env
+    env_endpoint = os.environ.get("CONTAINER_ENDPOINT")
+    if env_endpoint:
+        return env_endpoint
     base_path = os.path.join("unix://", runtime_dir())
     match engine:
         case "docker":
@@ -42,32 +41,32 @@ def runas(engine: str = "podman") -> str:
             docker_grp = grp.getgrnam("docker")
             gid = docker_grp.gr_gid
         except KeyError as ex:
-            raise RuntimeException("unable to determine docker group id")
+            raise RuntimeException("unable to determine docker group id") from ex
     return "%d:%d" % (uid, gid)
 
 
 def mounts(platform: str, engine: str = "podman") -> dict:
-    mounts = {
+    mount_points = {
         data_home(): "/output",
     }
     endpoint = container_endpoint(engine)
     if platform != "systemd" and is_sock_endpoint(endpoint):
-        mounts[endpoint] = "/%s.sock" % (engine)
-    return mounts
+        mount_points[endpoint] = "/%s.sock" % (engine)
+    return mount_points
 
 
 def env(platform: str, engine: str = "podman") -> dict:
-    env = {
+    container_env = {
         "SKUPPER_OUTPUT_PATH": data_home(),
         "SKUPPER_PLATFORM": platform,
     }
     endpoint = container_endpoint(engine)
     if platform != "systemd":
         if is_sock_endpoint(endpoint):
-            env["CONTAINER_ENDPOINT"] = "/%s.sock" % (engine)
+            container_env["CONTAINER_ENDPOINT"] = "/%s.sock" % (engine)
         else:
-            env["CONTAINER_ENDPOINT"] = endpoint
-    return env
+            container_env["CONTAINER_ENDPOINT"] = endpoint
+    return container_env
 
 def systemd_available(module: AnsibleModule) -> bool:
     base_command = ["systemctl"]
@@ -84,8 +83,8 @@ def systemd_create(module: AnsibleModule, service_name: str, service_file: str) 
     changed = False
     target_service_file = os.path.join(service_dir(), service_name)
     try:
-        with open(service_file, "r") as in_file:
-            with open(target_service_file, "w") as out_file:
+        with open(service_file, "r", encoding="utf-8") as in_file:
+            with open(target_service_file, "w", encoding="utf-8") as out_file:
                 module.debug("writing service file: %s" % (target_service_file))
                 content = in_file.read()
                 wrote = out_file.write(content)
@@ -122,7 +121,7 @@ def stop_service(module: AnsibleModule, namespace: str) -> bool:
 
 
 def _systemd_command(module: AnsibleModule, namespace: str, command: str) -> bool:
-    name = service_name(namespace)
+    name = default_service_name(namespace)
     base_command = ["systemctl"]
     if os.getuid() != 0:
         base_command.append("--user")
@@ -138,20 +137,20 @@ def _systemd_command(module: AnsibleModule, namespace: str, command: str) -> boo
     return changed
 
 
-def service_name(namespace: str = "default") -> str:
+def default_service_name(namespace: str = "default") -> str:
     return "skupper-%s.service" % (namespace)
 
 
 def create_service(module: AnsibleModule, namespace: str = "default") -> bool:
     if not systemd_available(module):
-        return
-    name = service_name(namespace)
+        return False
+    name = default_service_name(namespace)
     file = os.path.join(namespace_home(
         namespace), "internal", "scripts", name)
     if not os.path.isfile(file):
         module.warn(
             "SystemD service has not been defined: %s" % (file))
-        return
+        return False
     return systemd_create(module, name, file)
 
 
@@ -183,7 +182,7 @@ def systemd_delete(module: AnsibleModule, service_name: str) -> bool:
         os.remove(service_file)
         changed = True
     except Exception as ex:
-        module.warn("error removing service file '%s': %s" % (service_file, err))
+        module.warn("error removing service file '%s': %s" % (service_file, ex))
 
     # reloading systemd
     for command in [reload_command, reset_command]:
@@ -198,6 +197,6 @@ def systemd_delete(module: AnsibleModule, service_name: str) -> bool:
 
 def delete_service(module: AnsibleModule, namespace: str = "default") -> bool:
     if not systemd_available(module):
-        return
-    name = service_name(namespace)
+        return False
+    name = default_service_name(namespace)
     return systemd_delete(module, name)

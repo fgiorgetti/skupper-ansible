@@ -1,14 +1,25 @@
 #!/usr/bin/python
 
 from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+import glob
+import time
+import os
+import shutil
+import base64
+import copy
+
+import yaml
+
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.args import (
-    common_args
+    common_args,
+    is_valid_name
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common import (
     is_non_kube,
     data_home,
-    namespace_home,
-    service_dir,
+    namespace_home
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
     load,
@@ -27,20 +38,8 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.system import
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.command import (
     run_command
 )
-from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.exceptions import (
-    K8sException,
-    RuntimeException
-)
-from ansible.module_utils.urls import fetch_url
 from ansible.module_utils.basic import AnsibleModule
-import glob
-import time
-import yaml
-import os
-import shutil
-import base64
-import copy
-__metaclass__ = type
+
 
 DOCUMENTATION = r'''
 ---
@@ -186,6 +185,13 @@ class SystemModule:
         self._state = self.params.get("state")
         self._image = self.params.get("image")
         self._engine = self.params.get("engine")
+        self.platform = self.params.get("platform") or "podman"
+        self.namespace = self.params.get("namespace") or "default"
+        if not is_non_kube(self.platform):
+            self.platform = "podman"
+        if self.namespace and not is_valid_name(self.namespace):
+            self.module.fail_json("invalid namespace (rfc1123): {}".format(self.namespace))
+
 
     def run(self):
         result = dict(
@@ -194,36 +200,29 @@ class SystemModule:
         if self.module.check_mode:
             self.module.exit_json(**result)
 
-        # TODO disable debug mode
-        self.module._debug = True
-
-        platform = self.params.get("platform") or "podman"
-        namespace = self.params.get("namespace") or "default"
-
-        if not is_non_kube(platform):
-            platform = "podman"
+        # self.module._debug = True
 
         changed = False
-        path = namespace_home(namespace)
+        path = namespace_home(self.namespace)
         match self._state:
             case "setup":
-                changed = self.setup(platform, namespace)
+                changed = self.setup()
             case "reload":
-                changed = self.setup(platform, namespace, force=True)
+                changed = self.setup(force=True)
             case "teardown":
-                changed = self.teardown(namespace)
+                changed = self.teardown()
             case "start":
-                changed = start_service(self.module, namespace)
+                changed = start_service(self.module, self.namespace)
             case "stop":
-                changed = stop_service(self.module, namespace)
+                changed = stop_service(self.module, self.namespace)
             case "bundle":
-                changed = self.setup(platform, namespace, strategy="bundle")
+                changed = self.setup(strategy="bundle")
             case "tarball":
-                changed = self.setup(platform, namespace, strategy="tarball")
+                changed = self.setup(strategy="tarball")
 
         # handling bundle return
-        if self._state in ("bundle", "tarball"):
-            site_name = self._read_site_name(platform, namespace)
+        if changed and self._state in ("bundle", "tarball"):
+            site_name = self._read_site_name()
             path = ""
             if site_name:
                 ext = "sh" if self._state == "bundle" else "tar.gz"
@@ -233,7 +232,7 @@ class SystemModule:
                     bundle_encoded = base64.b64encode(bundle.read())
                     result['bundle'] = bundle_encoded.decode('utf-8')
         if self._state in ("setup", "reload"):
-            result["links"] = self.load_static_links(namespace)
+            result["links"] = self.load_static_links()
 
         # preparing response
         result["path"] = path
@@ -244,11 +243,11 @@ class SystemModule:
     def params(self):
         return self.module.params
 
-    def setup(self, platform: str, namespace: str = "default", force: bool = False, strategy: str = "") -> bool:
-        self.module.debug("namespace: %s" % (namespace))
-        runtime_dir = os.path.join(namespace_home(namespace), "runtime")
+    def setup(self, force: bool = False, strategy: str = "") -> bool:
+        self.module.debug("namespace: %s" % (self.namespace))
+        runtime_dir = os.path.join(namespace_home(self.namespace), "runtime")
         if not strategy and os.path.isdir(runtime_dir) and not force:
-            self.module.warn("namespace '%s' already exists" % (namespace))
+            self.module.warn("namespace '%s' already exists" % (self.namespace))
             return False
         try:
             os.makedirs(data_home(), exist_ok=True)
@@ -256,21 +255,18 @@ class SystemModule:
             self.module.fail_json(
                 "unable to create skupper base directory '%s': %s" % (data_home(), ex))
 
-        volume_mounts = mounts(platform, self._engine)
-        env_vars = env(platform, self._engine)
-
         command = [
             self._engine, "run", "--rm", "--name",
             "skupper-setup-%d" % (int(time.time())),
             "--network", "host", "--security-opt", "label=disable", "-u",
             runas(self._engine), "--userns=%s" % (userns(self._engine))
         ]
-        for source, dest in volume_mounts.items():
+        for source, dest in mounts(self.platform, self._engine).items():
             command.extend(["-v", "%s:%s:z" % (source, dest)])
-        for var, val in env_vars.items():
+        for var, val in env(self.platform, self._engine).items():
             command.extend(["-e", "%s=%s" % (var, val)])
         command.append(self._image)
-        command.extend(["/app/bootstrap", "-n", namespace])
+        command.extend(["/app/bootstrap", "-n", self.namespace])
         if strategy:
             command.extend(["-b", strategy])
         elif force:
@@ -279,12 +275,12 @@ class SystemModule:
         code, out, err = run_command(self.module, command)
         if code != 0:
             msg = "error setting up '%s' namespace: %s" % (
-                namespace, out or err)
+                self.namespace, out or err)
             self.module.fail_json(msg)
             return False
 
         if not strategy:
-            create_service(self.module, namespace)
+            create_service(self.module, self.namespace)
 
         return True
 
@@ -294,7 +290,8 @@ class SystemModule:
         if not os.path.isdir(runtime_dir):
             return changed
         changed = delete_service(self.module, namespace)
-        with open(os.path.join(runtime_dir, "platform.yaml"), "r") as platform_file:
+        platform_file_name = os.path.join(runtime_dir, "platform.yaml")
+        with open(platform_file_name, "r", encoding='utf-8') as platform_file:
             platform_obj = yaml.safe_load(platform_file)
             platform = platform_obj.get("platform", "")
             if platform in ("podman", "docker"):
@@ -314,17 +311,17 @@ class SystemModule:
                 "unable to remove '%s' namespace definition: %s" % (namespace, ex))
         return changed
 
-    def load_static_links(self, namespace) -> dict:
+    def load_static_links(self) -> dict:
         links = dict()
-        home = namespace_home(namespace)
+        home = namespace_home(self.namespace)
         links_path = os.path.join(home, "runtime", "links")
         links_search = os.path.join(links_path, "*.yaml")
         links_found = glob.glob(links_search)
         for link in links_found:
-            with open(link) as f:
+            with open(link, 'r', encoding='utf-8') as f:
                 link_content = f.read()
                 for obj in yaml.safe_load_all(link_content):
-                    if type(obj) != dict or obj.get("kind", "") != "Link":
+                    if not isinstance(obj, dict) or obj.get("kind", "") != "Link":
                         continue
                     for endpoint in obj.get("spec", {}).get("endpoints", []):
                         host = endpoint.get("host", "")
@@ -332,13 +329,13 @@ class SystemModule:
                             links[host] = link_content
         return links
 
-    def _read_site_name(self, platform: str, namespace: str = "default") -> str:
-        home = namespace_home(namespace)
+    def _read_site_name(self) -> str:
+        home = namespace_home(self.namespace)
         resources_path = os.path.join(home, "input", "resources")
-        resources_str = load(resources_path, platform)
+        resources_str = load(resources_path, self.platform)
         site_name = ""
         for res in yaml.safe_load_all(resources_str):
-            if not res or type(res) != dict:
+            if not res or not isinstance(res, dict):
                 continue
             _, kind = version_kind(res)
             if kind != "Site":
@@ -347,7 +344,7 @@ class SystemModule:
             break
         if not site_name:
             self.module.warn(
-                "unable to identify site name on namespace: '%s'" % (namespace))
+                "unable to identify site name on namespace: '%s'" % (self.namespace))
         return site_name
 
 

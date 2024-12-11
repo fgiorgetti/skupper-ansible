@@ -10,8 +10,8 @@ def data_home() -> str:
 
 def namespace_home(namespace: str) -> str:
     base_path = data_home()
-    namespace_home = os.path.join(base_path, "namespaces", namespace or "default")
-    return namespace_home
+    home = os.path.join(base_path, "namespaces", namespace or "default")
+    return home
 
 
 def resources_home(namespace: str) -> str:
