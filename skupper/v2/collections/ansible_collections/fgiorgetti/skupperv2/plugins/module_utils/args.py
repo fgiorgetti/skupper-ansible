@@ -1,5 +1,5 @@
 import ipaddress
-import regex
+import re
 from urllib.parse import urlparse
 
 
@@ -20,9 +20,9 @@ def add_fact(result, d):
     result['ansible_facts'] = facts
 
 
-def is_valid_name(name: str) -> bool:
+def is_valid_name(name: str, ignore_case=False) -> bool:
     # rfc1123 name validation
-    return regex.search("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", name)
+    return re.search("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", name if not ignore_case else name.lower())
 
 
 def is_valid_host_ip(addr: str) -> bool:

@@ -20,28 +20,6 @@ from ansible_collections.fgiorgetti.skupperv2.tests.unit.utils.ansible_module_mo
     get_bin_path,
 )
 
-# test path validation
-# path provided as local file (action plugin makes is def instead and cleans path)
-# path provided as remote file
-# path provided as http url
-
-# test no resource found
-# no resource definition found
-
-# test nonkube states
-# platform non-kube state absent assert resource_delete called
-# platform non-kube state present assert dump called with overwrite False
-# platform non-kube state latest assert dump called with overwrite True
-
-# test kube states
-# platform kube state absent assert k8s_client.delete called
-# platform kube state present assert k8s_client.create_or_patch with overwrite False
-# platform kube state latest assert k8s_client.create_or_patch with overwrite True
-
-
-# ALWAYS
-# validate changed
-
 sample_site_def = """---
 apiVersion: skupper.io/v2alpha1
 kind: Site
@@ -124,12 +102,28 @@ class TestResourceModule(TestCase):
         self.addCleanup(self.mock_k8s_config.stop)
         self.addCleanup(self.mock_k8s_client.stop)
         self.addCleanup(self.mock_fetch_url.stop)
+
+        self.k8s.create = self.k8s_create
+        self.k8s.patch = self.k8s_patch
+        self.k8s.delete = self.k8s_delete
+
+        # do not use real namespace path
+        self.temphome = tempfile.mkdtemp()
+        resources_home_mock = lambda ns: os.path.join(self.temphome, ns, "input", "resources")
+        self.mock_resources_home = patch('ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common.resources_home', new=resources_home_mock)
+        self.mock_resources_home.start()
+        self.addCleanup(self.mock_resources_home.stop)
+
         # resource module must be imported at last, otherwise fetch_url won't be patched
         try:
+            from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common import resources_home
             from ansible_collections.fgiorgetti.skupperv2.plugins.modules import resource
             self.module = resource
+            self.resources_home = resources_home
         except:
             pass
+
+        # raise Exception(resources_home("banana"))
 
     def test_mutually_exclusive_args(self):
         inputs = [
@@ -147,12 +141,62 @@ class TestResourceModule(TestCase):
             set_module_args({})
             self.module.main()
 
-    def test_kube_path_local_file(self):
+    def test_nonkube_path_local_file(self):
 
-        # modify self.k8s create and patch behaviors
-        self.k8s.create = self.create
-        self.k8s.patch = self.patch
-        self.k8s.delete = self.delete
+        test_cases = [
+            {
+                "name": "create new entry using state present",
+                "expectChanged": True,
+                "storedObjects": 3,
+                "state": "present",
+            }, {
+                "name": "create existing entry using state present",
+                "expectChanged": False,
+                "storedObjects": 3,
+                "state": "present",
+            }, {
+                "name": "create existing entry using state latest",
+                "state": "latest",
+                "storedObjects": 3,
+                "expectChanged": True,
+            }, {
+                "name": "deleting all entries using state absent",
+                "state": "absent",
+                "storedObjects": 0,
+                "expectChanged": True,
+            }, {
+                "name": "no changes on empty store using state absent",
+                "state": "absent",
+                "storedObjects": 0,
+                "expectChanged": False,
+            }
+        ]
+        dirname = tempfile.mkdtemp()
+        filename = os.path.join(dirname, "resources.yaml")
+        with open(filename, "w", encoding='utf-8') as f:
+            f.write(sample_site_def)
+        for test_case in test_cases:
+            set_module_args({
+                'path': dirname,
+                'state': test_case.get("state", ""),
+                'platform': 'podman',
+            })
+
+            with self.assertRaises(AnsibleExitJson) as result:
+                self.module.main()
+            self.assertTrue(
+                result.exception.args[0]['changed'] == test_case.get("expectChanged", False),
+                "{} - {}".format(test_case.get("name"), result.exception)
+            )
+            storedObjects = 0
+            for file in ["Site-my-site", "RouterAccess-access-my-site", "Listener-backend"]:
+                filename = os.path.join(self.temphome, "default/input/resources/{}.yaml".format(file))
+                if os.path.isfile(filename):
+                    storedObjects += 1
+            self.assertEqual(test_case.get("storedObjects"), storedObjects,
+                             "{} - {}".format(test_case.get("name"), result.exception))
+
+    def test_kube_path_local_file(self):
 
         test_cases = [
             {
@@ -201,11 +245,6 @@ class TestResourceModule(TestCase):
 
 
     def test_kube_path_http_file(self):
-
-        # modify self.k8s create and patch behaviors
-        self.k8s.create = self.create
-        self.k8s.patch = self.patch
-        self.k8s.delete = self.delete
 
         test_cases = [
             {
@@ -271,11 +310,6 @@ class TestResourceModule(TestCase):
 
     def test_kube_def(self):
 
-        # modify self.k8s create and patch behaviors
-        self.k8s.create = self.create
-        self.k8s.patch = self.patch
-        self.k8s.delete = self.delete
-
         test_cases = [
             {
                 "name": "create new entry using state present",
@@ -318,7 +352,7 @@ class TestResourceModule(TestCase):
             )
             self.assertEqual(test_case.get("storedObjects"), len(self.store), "incorrect amount of objects stored")
 
-    def create(self, **kwargs):
+    def k8s_create(self, **kwargs):
         if "body" not in kwargs:
             return
         obj = kwargs.get("body", {})
@@ -334,10 +368,10 @@ class TestResourceModule(TestCase):
                 raise ApiException(reason="Conflict")
         self.store[key] = obj
 
-    def patch(self, **kwargs):
-        self.create(body=kwargs.get("body"), overwrite=True)
+    def k8s_patch(self, **kwargs):
+        self.k8s_create(body=kwargs.get("body"), overwrite=True)
 
-    def delete(self, **kwargs):
+    def k8s_delete(self, **kwargs):
         if "name" not in kwargs:
             return
         name = kwargs.get("name", "")

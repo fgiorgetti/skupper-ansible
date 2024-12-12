@@ -39,7 +39,7 @@
       fgiorgetti.skupperv2.token:
         namespace: "{{ namespace }}"
         name: public-grant
-        redemptionsAllowed: 2
+        redemptions_allowed: 2
       register: public_token
       when: inventory_hostname == 'public'
 

@@ -50,11 +50,11 @@ options:
         - Name of the AccessGrant (to be generated or consumed) and AccessToken (kubernetes platform only)
         - Name of a RouterAccess (podman, docker or systemd platforms)
         type: str
-    redemptionsAllowed:
+    redemptions_allowed:
         description:
         - The number of claims the generated AccessGrant is valid for
         type: int
-    expirationWindow:
+    expiration_window:
         description:
         - Duration of the generated AccessGrant
         - Sample values: 10m, 2h
@@ -110,8 +110,8 @@ def argspec():
     spec = copy.deepcopy(common_args())
     spec["name"] = dict(type="str", default=None, required=False)
     spec["host"] = dict(type="str", default=None, required=False)
-    spec["redemptionsAllowed"] = dict(type="int", default=1)
-    spec["expirationWindow"] = dict(type="str", default="15m")
+    spec["redemptions_allowed"] = dict(type="int", default=1)
+    spec["expiration_window"] = dict(type="str", default="15m")
     return spec
 
 
@@ -291,8 +291,8 @@ class TokenModule:
                     "name": name,
             },
             "spec": {
-                "redemptionsAllowed": self.params.get("redemptionsAllowed"),
-                "expirationWindow": self.params.get("expirationWindow"),
+                "redemptionsAllowed": self.params.get("redemptions_allowed"),
+                "expirationWindow": self.params.get("expiration_window"),
             }
         }
         access_grant_def = yaml.safe_dump(access_grant_dict, indent=2)

@@ -1,8 +1,6 @@
 from __future__ import (absolute_import, division, print_function)
 import os
-import regex
 import yaml
-from .common import resources_home
 from .args import is_valid_name
 from .exceptions import ResourceException
 
@@ -47,13 +45,13 @@ def version_kind(obj):
 
 
 def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
+    from .common import resources_home
     changed = False
     home = resources_home(namespace)
     if not os.path.exists(home):
         os.makedirs(home)
     elif not os.path.isdir(home):
         raise ResourceException("%s is not a directory" % (home))
-
     for obj in yaml.safe_load_all(definitions):
         if not isinstance(obj, dict):
             continue
@@ -63,7 +61,7 @@ def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
             continue
         if not is_valid_name(name):
             continue
-        if not kind or not is_valid_name(kind):
+        if not kind or not is_valid_name(kind, ignore_case=True):
             continue
         obj_namespace = obj.get("metadata", {}).get("namespace", "")
         if obj_namespace == "":
@@ -78,6 +76,7 @@ def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
 
 
 def delete(definitions: str, namespace: str) -> bool:
+    from .common import resources_home
     changed = False
     home = resources_home(namespace)
     if not os.path.exists(home):
@@ -90,7 +89,7 @@ def delete(definitions: str, namespace: str) -> bool:
         name = obj.get("metadata", {}).get("name")
         if not name or not is_valid_name(name):
             continue
-        if not kind or not is_valid_name(kind):
+        if not kind or not is_valid_name(kind, ignore_case=True):
             continue
         filename = os.path.join(home, "%s-%s.yaml" % (kind, name))
         if os.path.exists(filename):
