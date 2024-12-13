@@ -141,7 +141,7 @@ class TestResourceModule(TestCase):
             set_module_args({})
             self.module.main()
 
-    def test_nonkube_path_local_file(self):
+    def test_nonkube_path_local_directory(self):
 
         test_cases = [
             {
@@ -171,30 +171,35 @@ class TestResourceModule(TestCase):
                 "expectChanged": False,
             }
         ]
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, "resources.yaml")
-        with open(filename, "w", encoding='utf-8') as f:
-            f.write(sample_site_def)
-        for test_case in test_cases:
-            set_module_args({
-                'path': dirname,
-                'state': test_case.get("state", ""),
-                'platform': 'podman',
-            })
+        for subdir in [False, True]:
+            path = tempfile.mkdtemp()
+            store_path = path
+            if subdir:
+                store_path = os.path.join(path, "subdir")
+                os.mkdir(store_path)
+            filename = os.path.join(store_path, "resources.yaml")
+            with open(filename, "w", encoding='utf-8') as f:
+                f.write(sample_site_def)
+            for test_case in test_cases:
+                set_module_args({
+                    'path': path,
+                    'state': test_case.get("state", ""),
+                    'platform': 'podman',
+                })
 
-            with self.assertRaises(AnsibleExitJson) as result:
-                self.module.main()
-            self.assertTrue(
-                result.exception.args[0]['changed'] == test_case.get("expectChanged", False),
-                "{} - {}".format(test_case.get("name"), result.exception)
-            )
-            storedObjects = 0
-            for file in ["Site-my-site", "RouterAccess-access-my-site", "Listener-backend"]:
-                filename = os.path.join(self.temphome, "default/input/resources/{}.yaml".format(file))
-                if os.path.isfile(filename):
-                    storedObjects += 1
-            self.assertEqual(test_case.get("storedObjects"), storedObjects,
-                             "{} - {}".format(test_case.get("name"), result.exception))
+                with self.assertRaises(AnsibleExitJson) as result:
+                    self.module.main()
+                self.assertTrue(
+                    result.exception.args[0]['changed'] == test_case.get("expectChanged", False),
+                    "{} - {}".format(test_case.get("name"), result.exception)
+                )
+                storedObjects = 0
+                for file in ["Site-my-site", "RouterAccess-access-my-site", "Listener-backend"]:
+                    filename = os.path.join(self.temphome, "default/input/resources/{}.yaml".format(file))
+                    if os.path.isfile(filename):
+                        storedObjects += 1
+                self.assertEqual(test_case.get("storedObjects"), storedObjects,
+                                "{} - {}".format(test_case.get("name"), result.exception))
 
     def test_kube_path_local_file(self):
 
