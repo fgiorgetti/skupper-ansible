@@ -142,6 +142,13 @@ class TestSystemModule(TestCase):
                     "namespace": "west",
                     "platform": "systemd",
                 },
+            }, {
+                "name": "setup-east-docker",
+                "input": {
+                    "namespace": "west",
+                    "platform": "docker",
+                    "image": "quay.io/skupper/cli:latest",
+                },
             },
         ]
 
