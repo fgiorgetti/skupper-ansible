@@ -19,7 +19,8 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.args import (
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.common import (
     is_non_kube,
     data_home,
-    namespace_home
+    namespace_home,
+    resources_home
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
     load,
@@ -80,7 +81,8 @@ options:
     engine:
         description:
         - The container engine used to manage a namespace or produce a bundle
-        - It is only used when the platform is set to systemd or when state is bundle or tarball (otherwise the platform value is used)
+        - The default value is podman, but if platform is set to docker, it will use docker as the engine as well
+        - It is also used when the platform is set to systemd or when state is bundle or tarball (otherwise the platform value is used)
         type: str
         default: podman
         choices: ["podman", "docker"]
@@ -186,12 +188,13 @@ class SystemModule:
         self._image = self.params.get("image")
         self._engine = self.params.get("engine")
         self.platform = self.params.get("platform") or "podman"
+        if self.platform == "docker":
+            self._engine = "docker"
         self.namespace = self.params.get("namespace") or "default"
         if not is_non_kube(self.platform):
             self.platform = "podman"
         if self.namespace and not is_valid_name(self.namespace):
             self.module.fail_json("invalid namespace (rfc1123): {}".format(self.namespace))
-
 
     def run(self):
         result = dict(
@@ -249,11 +252,9 @@ class SystemModule:
         if not strategy and os.path.isdir(runtime_dir) and not force:
             self.module.warn("namespace '%s' already exists" % (self.namespace))
             return False
-        try:
-            os.makedirs(data_home(), exist_ok=True)
-        except OSError as ex:
-            self.module.fail_json(
-                "unable to create skupper base directory '%s': %s" % (data_home(), ex))
+        resources_home_dir = resources_home(self.namespace)
+        if not os.path.isdir(resources_home_dir):
+            self.module.fail_json("no resources found at: {}".format(resources_home_dir))
 
         command = [
             self._engine, "run", "--rm", "--name",

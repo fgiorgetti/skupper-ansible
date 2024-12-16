@@ -17,6 +17,9 @@ class AnsibleExitJson(Exception):
 
 class AnsibleFailJson(Exception):
     """Exception class to be raised by module.fail_json and caught by the test case"""
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args)
+        self.msg = kwargs.get('msg')
     pass
 
 
@@ -30,6 +33,8 @@ def exit_json(*args, **kwargs):
 def fail_json(*args, **kwargs):
     """function to patch over fail_json; package return data into an exception"""
     kwargs['failed'] = True
+    if args:
+        kwargs['msg'] = args
     raise AnsibleFailJson(kwargs)
 
 def get_bin_path(self, arg, required=False):

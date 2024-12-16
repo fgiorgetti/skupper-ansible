@@ -21,7 +21,8 @@ from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.exceptions im
     RuntimeException
 )
 from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.args import (
-    common_args
+    common_args,
+    is_valid_name
 )
 from ansible.module_utils.urls import fetch_url
 from ansible.module_utils.basic import AnsibleModule
@@ -180,6 +181,9 @@ class ResourceModule:
         try:
             if is_non_kube(platform):
                 namespace = self.params["namespace"] or "default"
+                if not is_valid_name(namespace):
+                    self.module.fail_json("invalid namespace (rfc1123): {}".format(namespace))
+
                 if state == "absent":
                     changed = resource_delete(definitions, namespace)
                 else:

@@ -134,11 +134,15 @@ class TestResourceModule(TestCase):
             with self.assertRaises(AnsibleFailJson) as ex:
                 set_module_args(input)
                 self.module.main()
-                self.assertTrue("mutually exclusive" in ex.__str__())
 
     def test_module_fail_when_required_args_missing(self):
         with self.assertRaises(AnsibleFailJson):
             set_module_args({})
+            self.module.main()
+
+    def test_module_fail_bad_args(self):
+        with self.assertRaises(AnsibleFailJson):
+            set_module_args({"namespace": "invalid.name"})
             self.module.main()
 
     def test_nonkube_path_local_directory(self):
