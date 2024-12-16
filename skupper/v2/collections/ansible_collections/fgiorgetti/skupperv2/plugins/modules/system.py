@@ -76,7 +76,7 @@ options:
         description:
         - The image used to initialize your site or bundle
         type: str
-        default: quay.io/skupper/bootstrap:v2-latest
+        default: quay.io/skupper/cli:v2-latest
     engine:
         description:
         - The container engine used to manage a namespace or produce a bundle
@@ -173,7 +173,7 @@ def argspec():
                          choices=["setup", "reload", "teardown",
                                   "stop", "start", "bundle", "tarball"])
     spec["image"] = dict(type="str",
-                         default="quay.io/skupper/bootstrap:v2-latest")
+                         default="quay.io/skupper/cli:v2-latest")
     spec["engine"] = dict(type="str", default="podman",
                           choices=["podman", "docker"])
     return spec
@@ -210,7 +210,7 @@ class SystemModule:
             case "reload":
                 changed = self.setup(force=True)
             case "teardown":
-                changed = self.teardown()
+                changed = self.teardown(self.namespace)
             case "start":
                 changed = start_service(self.module, self.namespace)
             case "stop":
@@ -261,12 +261,12 @@ class SystemModule:
             "--network", "host", "--security-opt", "label=disable", "-u",
             runas(self._engine), "--userns=%s" % (userns(self._engine))
         ]
-        for source, dest in mounts(self.platform, self._engine).items():
+        for source, dest in mounts(self.namespace, self.platform, self._engine).items():
             command.extend(["-v", "%s:%s:z" % (source, dest)])
         for var, val in env(self.platform, self._engine).items():
             command.extend(["-e", "%s=%s" % (var, val)])
         command.append(self._image)
-        command.extend(["/app/bootstrap", "-n", self.namespace])
+        command.extend(["-n", self.namespace, "system", "setup"])
         if strategy:
             command.extend(["-b", strategy])
         elif force:

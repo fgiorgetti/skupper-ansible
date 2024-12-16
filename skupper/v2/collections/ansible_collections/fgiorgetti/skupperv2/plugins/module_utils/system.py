@@ -45,9 +45,10 @@ def runas(engine: str = "podman") -> str:
     return "%d:%d" % (uid, gid)
 
 
-def mounts(platform: str, engine: str = "podman") -> dict:
+def mounts(namespace: str, platform: str, engine: str = "podman") -> dict:
     mount_points = {
         data_home(): "/output",
+        os.path.join(namespace_home(namespace), "input", "resources"): "/input",
     }
     endpoint = container_endpoint(engine)
     if platform != "systemd" and is_sock_endpoint(endpoint):
