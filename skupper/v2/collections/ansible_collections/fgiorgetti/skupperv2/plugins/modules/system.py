@@ -298,7 +298,7 @@ class SystemModule:
             if platform in ("podman", "docker"):
                 container = "%s-skupper-router" % (namespace)
                 remove_cmd = [platform, "rm", "-f", container]
-                code, _, err = self.module.run_command(remove_cmd)
+                code, _, err = run_command(self.module, remove_cmd)
                 if code == 0:
                     changed = True
                 else:
