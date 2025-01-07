@@ -120,6 +120,9 @@ def mutualexc():
 
 
 class TokenModule:
+    max_attempts = 6
+    retry_delay = 5
+
     def __init__(self, module: AnsibleModule):
         self.module = module
         self.name = self.params.get("name")
@@ -154,6 +157,8 @@ class TokenModule:
                 token_link = self.load_from_grant(self.name)
             except RuntimeException as runtime_ex:
                 self.module.fail_json(runtime_ex.msg)
+            except K8sException as k8s_ex:
+                self.module.fail_json(k8s_ex.msg)
             if not token_link:
                 grant_name = self.name or "ansible-grant-%d" % (
                     int(time.time()))
@@ -162,13 +167,15 @@ class TokenModule:
                         self.module.fail_json(
                             "unable to create AccessGrant: '%s'" % (grant_name))
                 except Exception as ex:
-                    raise RuntimeException(
-                        "error creating AccessGrant: '%s'" % (grant_name)) from ex
+                    self.module.fail_json(
+                        "error creating AccessGrant: '%s' - reason: %s" % (grant_name, ex))
                 changed = True
                 try:
                     token_link = self.load_from_grant(grant_name)
                 except RuntimeException as runtime_ex:
                     self.module.fail_json(runtime_ex.msg)
+                except K8sException as k8s_ex:
+                    self.module.fail_json(k8s_ex.msg)
 
         # adding return values
         if token_link:
@@ -190,42 +197,19 @@ class TokenModule:
                 return link_content
         return ""
 
-    def is_grant_ready(self, access_grant: dict) -> bool:
-        for condition in access_grant.get("status", {}).get("conditions", []):
-            if condition.get("type", "") == "Ready" and \
-                    condition.get("status", "False") == "True":
-                return True
-        return False
-
     def can_be_redeemed(self, access_grant: dict) -> bool:
         allowed = access_grant.get("spec", {}).get("redemptionsAllowed", 0)
-        redeemed = access_grant.get("status", {}).get("redeemed", 0)
+        redeemed = access_grant.get("status", {}).get("redemptions", 0)
         return redeemed < allowed
 
     def load_from_grant(self, name: str) -> str:
-        max_attempts = 6
-        retry_delay = 5
         k8s = K8sClient(self.kubeconfig, self.context)
-        site_ready = False
-        for attempt in range(max_attempts):
-            try:
-                sites = k8s.get(self.namespace, "skupper.io/v2alpha1", "Site", "")
-                if not sites:
-                    return ""
-                for site in sites:
-                    if has_condition(site, "Ready"):
-                        site_ready = True
-                        break
-            except K8sException as ex:
-                    if ex.status != 404:
-                        raise ex
-            if site_ready:
-                break
-            time.sleep(retry_delay)
+        self.wait_site_ready(k8s)
         access_grant = {}
-        for attempt in range(max_attempts):
+        found_not_ready = False
+        for attempt in range(self.max_attempts):
             self.module.debug("retrieving accessgrants attempt %d/%d"
-                                % (attempt, max_attempts))
+                                % (attempt, self.max_attempts))
             access_grants = None
             try:
                 access_grants = k8s.get(self.namespace, "skupper.io/v2alpha1", "AccessGrant", name)
@@ -234,14 +218,22 @@ class TokenModule:
                     raise ex
             if not access_grants or len(access_grants) == 0:
                 break
-            if isinstance(access_grants, dict) and has_condition(access_grants, "Ready"):
-                access_grant = access_grants
-                break
+            # give them a chance to be ready
+            if isinstance(access_grants, dict):
+                if has_condition(access_grants, "Ready"):
+                    found_not_ready = False
+                    access_grant = access_grants
+                    break
+                found_not_ready = True
             if isinstance(access_grants, list):
                 access_grant, all_ready = self._load_from_list(access_grants)
                 if all_ready:
                     break
-            time.sleep(retry_delay)
+            time.sleep(self.retry_delay)
+
+        if found_not_ready:
+            raise RuntimeException(
+                msg="accessgrant '%s' is not ready" % (name))
 
         if len(access_grant) == 0:
             return ""
@@ -270,6 +262,26 @@ class TokenModule:
             }
         }
         return yaml.safe_dump(access_token, indent=2)
+
+    def wait_site_ready(self, k8s):
+        site_ready = False
+        for attempt in range(self.max_attempts):
+            try:
+                sites = k8s.get(self.namespace, "skupper.io/v2alpha1", "Site", "")
+                if not sites:
+                    raise RuntimeException('no sites found on namespace "{}"'.format(self.namespace or "default"))
+                for site in sites:
+                    if has_condition(site, "Ready"):
+                        site_ready = True
+                        break
+            except K8sException as ex:
+                    if ex.status != 404:
+                        raise ex
+            if site_ready:
+                break
+            time.sleep(self.retry_delay)
+        if not site_ready:
+            raise RuntimeException('no ready sites found on namespace "{}"'.format(self.namespace or "default"))
 
     def _load_from_list(self, access_grants) -> tuple[dict, bool]:
         all_ready = True

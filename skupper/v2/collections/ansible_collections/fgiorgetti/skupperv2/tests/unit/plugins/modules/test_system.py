@@ -1,18 +1,10 @@
 import base64
-import io
 import os
 import shutil
 import tempfile
-import yaml
 from unittest import TestCase
-from unittest.mock import MagicMock, patch, call
-from kubernetes import client, config, dynamic
-from kubernetes.dynamic.exceptions import ApiException
+from unittest.mock import patch
 from ansible.module_utils import basic
-from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.k8s import K8sClient
-from ansible_collections.fgiorgetti.skupperv2.plugins.module_utils.resource import (
-    version_kind
-)
 from ansible_collections.fgiorgetti.skupperv2.tests.unit.utils.ansible_module_mock import (
     set_module_args,
     AnsibleExitJson,

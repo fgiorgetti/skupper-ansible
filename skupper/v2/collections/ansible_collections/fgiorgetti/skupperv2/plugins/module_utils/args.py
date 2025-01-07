@@ -31,7 +31,7 @@ def is_valid_host_ip(addr: str) -> bool:
         return True
     except Exception:
         pass
-    if addr.__contains__("/"):
+    if re.search(addr, "[/:]"):
         return False
-    domain = urlparse("http://{}".format(addr)).netloc
+    domain = urlparse("http://{}".format(addr)).hostname
     return domain == addr

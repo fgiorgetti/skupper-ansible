@@ -123,8 +123,6 @@ class TestResourceModule(TestCase):
         except:
             pass
 
-        # raise Exception(resources_home("banana"))
-
     def test_mutually_exclusive_args(self):
         inputs = [
             {"path": "file.yaml", "def": "resource definition"},

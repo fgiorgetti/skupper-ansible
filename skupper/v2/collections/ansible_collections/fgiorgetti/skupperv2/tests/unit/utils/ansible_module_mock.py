@@ -22,6 +22,7 @@ class AnsibleFailJson(Exception):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args)
         self.msg = kwargs.get('msg')
+        self.__dict__.update(*args)
     pass
 
 
