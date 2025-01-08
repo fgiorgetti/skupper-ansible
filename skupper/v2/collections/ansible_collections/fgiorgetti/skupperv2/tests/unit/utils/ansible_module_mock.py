@@ -40,6 +40,15 @@ def fail_json(*args, **kwargs):
         kwargs['msg'] = args
     raise AnsibleFailJson(kwargs)
 
+
+def execute_module(*args, **kwargs):
+    return kwargs
+
+
+def action_module_run(*args):
+    return {}
+
+
 def get_bin_path(self, arg, required=False):
     """Mock AnsibleModule.get_bin_path"""
     if arg.endswith('my_command'):

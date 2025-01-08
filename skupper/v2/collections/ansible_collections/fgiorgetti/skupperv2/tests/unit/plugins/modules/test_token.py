@@ -22,9 +22,13 @@ from ansible_collections.fgiorgetti.skupperv2.tests.unit.utils.ansible_module_mo
 
 
 class K8sClientMock:
+    # all resources
     resources = []
+    # resources that will throw a 500 error when trying to get them
     get_exception = []
+    # resources that will throw a 500 error when trying to create them
     create_exception = []
+    # resources created indirectly that are not put in ready state
     new_resources_not_ready = []
 
     def __init__(self, *args):
