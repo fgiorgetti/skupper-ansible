@@ -2,25 +2,33 @@
 - name: Example playbook
   hosts: all
   tasks:
-    - name: adding west resources
-      fgiorgetti.skupperv2.resource:
-        path: /tmp/input/resources
+#    - name: adding west resources
+#      fgiorgetti.skupperv2.resource:
+#        path: /tmp/input/resources
+#        namespace: west
+#        platform: podman
+    - name: setup west
+      fgiorgetti.skupperv2.system:
+        state: setup
         namespace: west
-        platform: podman
+    - name: teardown west
+      fgiorgetti.skupperv2.system:
+        state: teardown
+        namespace: west
 #    - name: initializing the default namespace
 #      fgiorgetti.skupperv2.system:
 #    - name: reload the default namespace
 #      fgiorgetti.skupperv2.system:
 #        state: reload
-#    - name: generate a site bundle selfextract
-#      fgiorgetti.skupperv2.system:
-#        state: bundle
-#      register: bundle_out
-#    - name: saving bundle as a file
-#      ansible.builtin.copy:
-#        dest: /tmp/bundle.sh
-#        content: "{{ bundle_out.bundle | b64decode }}"
-#        mode: '0755'
+#   - name: generate a site bundle selfextract
+#     fgiorgetti.skupperv2.system:
+#       state: bundle
+#     register: bundle_out
+#   - name: saving bundle as a file
+#     ansible.builtin.copy:
+#       dest: /tmp/bundle.sh
+#       content: "{{ bundle_out.bundle | b64decode }}"
+#       mode: '0755'
 #    - name: generate a site bundle tarball
 #      fgiorgetti.skupperv2.system:
 #        state: tarball
@@ -46,10 +54,10 @@
 #    - name: starting default namespace
 #      fgiorgetti.skupperv2.system:
 #        state: start
-    - name: setup west
-      fgiorgetti.skupperv2.system:
-        state: setup
-        namespace: west
+#    - name: setup west
+#      fgiorgetti.skupperv2.system:
+#        state: setup
+#        namespace: west
 #    - name: removing default namespace
 #      fgiorgetti.skupperv2.system:
 #        state: teardown

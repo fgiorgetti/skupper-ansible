@@ -5,7 +5,7 @@
     - name: Skupper V2 controller
       kubernetes.core.k8s:
         state: present
-        src: https://raw.githubusercontent.com/skupperproject/skupper/refs/heads/v2/cmd/controller/deploy_cluster_scope.yaml
+        src: https://github.com/skupperproject/skupper/releases/download/2.0.0-preview-2/skupper-setup-cluster-scope.yaml
 
 - name: Database deployment
   hosts: private-podman

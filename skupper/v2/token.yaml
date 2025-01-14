@@ -2,14 +2,22 @@
 - name: Example playbook
   hosts: all
   tasks:
-    - name: Testing the token module kube
-      fgiorgetti.skupperv2.token:
-        namespace: west
-        name: ansible-grant-1733189013
+#    - name: Testing the token module kube
+#      fgiorgetti.skupperv2.token:
+#        namespace: west
+#        name: ansible-grant-1733189013
     - name: Testing the token module podman
       fgiorgetti.skupperv2.token:
         platform: podman
-        host: 192.168.124.1
+        namespace: west
+        host: 192.168.68.115
+      register: out
+    - name: Displaying token
+      ansible.builtin.debug:
+        msg: "{{ out.token }}"
+    - name: Displaying inv hostname
+      ansible.builtin.debug:
+        msg: "{{ hostvars[inventory_hostname] }}"
 #    - name: k8s get accessgrants
 #      kubernetes.core.k8s_info:
 #        namespace: west
