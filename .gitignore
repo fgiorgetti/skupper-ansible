@@ -1,4 +1,5 @@
 *.tar.gz
 skupper/skupper/docs/
 skupper/skupper/tests/output
+skupper/v2/collections/ansible_collections/fgiorgetti/skupperv2/tests/output
 __pycache__/
