@@ -56,11 +56,6 @@ def version_kind(obj):
 def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
     from .common import resources_home
     changed = False
-    home = resources_home(namespace)
-    if not os.path.exists(home):
-        os.makedirs(home)
-    elif not os.path.isdir(home):
-        raise ResourceException("%s is not a directory" % (home))
     for obj in yaml.safe_load_all(definitions):
         if not isinstance(obj, dict):
             continue
@@ -72,9 +67,16 @@ def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
             continue
         if not kind or not is_valid_name(kind, ignore_case=True):
             continue
-        obj_namespace = obj.get("metadata", {}).get("namespace", "")
-        if obj_namespace == "":
-            obj["metadata"]["namespace"] = namespace
+        if namespace:
+            obj.get("metadata", {})["namespace"] = namespace
+        obj_namespace = obj.get("metadata", {}).get("namespace", "default")
+        if not is_valid_name(obj_namespace):
+            raise ResourceException("invalid namespace (rfc1123): {}".format(obj_namespace))
+        home = resources_home(obj_namespace)
+        if not os.path.exists(home):
+            os.makedirs(home)
+        elif not os.path.isdir(home):
+            raise ResourceException("%s is not a directory" % (home))
         filename = os.path.join(home, "%s-%s.yaml" % (kind, name))
         if os.path.exists(filename) and not overwrite:
             continue
@@ -87,11 +89,6 @@ def dump(definitions: str, namespace: str, overwrite: bool) -> bool:
 def delete(definitions: str, namespace: str) -> bool:
     from .common import resources_home
     changed = False
-    home = resources_home(namespace)
-    if not os.path.exists(home):
-        return changed
-    if not os.path.isdir(home):
-        raise ResourceException("%s is not a directory" % (home))
 
     for obj in yaml.safe_load_all(definitions):
         kind = version_kind(obj)[1]
@@ -100,6 +97,17 @@ def delete(definitions: str, namespace: str) -> bool:
             continue
         if not kind or not is_valid_name(kind, ignore_case=True):
             continue
+        obj_namespace = namespace or obj.get("metadata", {}).get("namespace", "default")
+        if not is_valid_name(obj_namespace):
+            raise ResourceException("invalid namespace (rfc1123): {}".format(obj_namespace))
+        home = resources_home(obj_namespace)
+        if not os.path.exists(home):
+            # nothing to delete, ignore (needed for idempotency)
+            continue
+        if not os.path.isdir(home):
+            # nothing to delete, ignore (needed for idempotency)
+            continue
+            # raise ResourceException("%s is not a directory" % (home))
         filename = os.path.join(home, "%s-%s.yaml" % (kind, name))
         if os.path.exists(filename):
             os.remove(filename)

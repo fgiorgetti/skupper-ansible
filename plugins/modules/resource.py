@@ -188,8 +188,8 @@ class ResourceModule:
         overwrite = state == "latest"
         try:
             if is_non_kube(platform):
-                namespace = self.params["namespace"] or "default"
-                if not is_valid_name(namespace):
+                namespace = self.params["namespace"] or ""
+                if namespace and not is_valid_name(namespace):
                     self.module.fail_json("invalid namespace (rfc1123): {}".format(namespace))
 
                 if state == "absent":

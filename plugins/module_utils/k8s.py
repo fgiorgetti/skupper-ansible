@@ -2,6 +2,7 @@ from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
 
+from .args import is_valid_name
 from .resource import version_kind
 from .exceptions import K8sException
 try:
@@ -34,23 +35,21 @@ class K8sClient:
             if not isinstance(obj, dict):
                 continue
             version, kind = version_kind(obj)
+            if namespace:
+                obj.get("metadata", {})["namespace"] = namespace
             obj_namespace = obj.get("metadata", {}).get("namespace", "default")
-            if obj_namespace != (namespace or "default"):
-                if obj_namespace == "default":
-                    obj["metadata"]["namespace"] = namespace
-                else:
-                    raise K8sException("namespace cannot be set to '%s' as resource (%s/%s) "
-                                       "is defined with namespace '%s'" % (namespace, version, kind, obj_namespace))
+            if not is_valid_name(obj_namespace):
+                raise K8sException("invalid namespace (rfc1123): {}".format(obj_namespace))
             api = self.api(api_version=version, kind=kind)
             try:
-                api.create(body=obj, namespace=namespace)
+                api.create(body=obj, namespace=obj_namespace)
                 changed = True
             except ApiException as api_ex:
                 if api_ex.reason == "Conflict":
                     if not overwrite:
                         continue
                     # try merging
-                    self._patch(api, obj, namespace)
+                    self._patch(api, obj, obj_namespace)
                     changed = True
                 else:
                     body = json.loads(api_ex.body)
@@ -77,11 +76,14 @@ class K8sClient:
                 continue
             version, kind = version_kind(obj)
             obj_name = obj.get("metadata", {}).get("name")
+            obj_namespace = namespace or obj.get("metadata", {}).get("namespace", "default")
+            if not is_valid_name(obj_namespace):
+                raise K8sException("invalid namespace (rfc1123): {}".format(obj_namespace))
             if not obj_name:
                 continue
             api = self.api(api_version=version, kind=kind)
             try:
-                api.delete(name=obj_name, namespace=namespace)
+                api.delete(name=obj_name, namespace=obj_namespace)
                 changed = True
             except ApiException as api_ex:
                 if api_ex.status == 404:
